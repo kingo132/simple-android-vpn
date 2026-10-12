@@ -172,7 +172,13 @@ cmake -B build && cmake --build build -j
 ./build/tests/packet_test                 # 包解析/构造、校验和、分片重组、DNS/TLS/HTTP 解析
 sudo tests/e2e_test.sh                    # 端到端（需要 root）
 sudo tests/jni_test.sh                    # 在 Linux JVM 上运行 App 的 JNI 代码
+tests/device_test.sh                      # 真机测试（macOS / Linux，手机 USB 调试连接）
 ```
+
+`tests/device_test.sh` 在连着手机的电脑上一条命令跑完真机测试：编译服务端和 App、在本机启动服务端、
+安装 App、通过 adb 自动连接 VPN（debug 版 App 支持 `am start --es vpn_action connect ...`，release 版忽略），
+然后在手机上产生 DNS / ping / HTTP / HTTPS 流量，检查服务器日志和 logcat，再测试服务端重启后自动重连和断开。
+手机和电脑要在同一个 Wi-Fi；macOS 防火墙询问时要允许 mulserver 接受传入连接。
 
 `tests/e2e_test.sh` 用 network namespace 在一台机器上搭出完整链路：
 “手机” namespace（TUN + Linux 客户端）→ VPN 服务器 → “互联网” namespace（HTTP / echo / DNS / SMTP 风格服务、ping）。

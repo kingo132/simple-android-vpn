@@ -1,6 +1,7 @@
 package com.kingo132.simplevpn
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
@@ -68,6 +69,42 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.start_vpn_button).setOnClickListener { onStartClicked() }
         findViewById<Button>(R.id.stop_vpn_button).setOnClickListener { stopVpnService() }
+
+        if (savedInstanceState == null) {
+            handleTestIntent(intent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleTestIntent(intent)
+    }
+
+    /**
+     * Automation hook for tests/device_test.sh, honoured by debuggable builds only:
+     *   adb shell am start -n com.kingo132.simplevpn/.MainActivity --es vpn_action connect \
+     *       --es server 192.168.1.10 --ei port 9443 --es token secret [--es dns 8.8.8.8] [--ez ipv6 false]
+     *   adb shell am start -n com.kingo132.simplevpn/.MainActivity --es vpn_action disconnect
+     * Release builds ignore it, so other apps cannot redirect the VPN to their own server.
+     */
+    private fun handleTestIntent(intent: Intent?) {
+        val action = intent?.getStringExtra("vpn_action") ?: return
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+            return
+        }
+        when (action) {
+            "connect" -> {
+                intent.getStringExtra("server")?.let { serverEdit.setText(it) }
+                if (intent.hasExtra("port")) portEdit.setText(intent.getIntExtra("port", 9443).toString())
+                intent.getStringExtra("token")?.let { tokenEdit.setText(it) }
+                intent.getStringExtra("dns")?.let { dnsEdit.setText(it) }
+                intent.getStringExtra("apps")?.let { appsEdit.setText(it) }
+                if (intent.hasExtra("ipv6")) ipv6Check.isChecked = intent.getBooleanExtra("ipv6", true)
+                onStartClicked()
+            }
+            "disconnect" -> stopVpnService()
+        }
     }
 
     override fun onResume() {

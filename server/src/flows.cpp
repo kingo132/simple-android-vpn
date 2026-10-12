@@ -741,11 +741,15 @@ void IcmpFlow::on_upstream_data(const char* data, int len) {
     const uint8_t* icmp = reinterpret_cast<const uint8_t*>(data);
     size_t n = static_cast<size_t>(len);
     bool v4 = key_.dst.version == 4;
-    if (raw_ && v4) {
-        // IPv4 raw sockets deliver the IP header too
-        if (n < 20) {
-            return;
-        }
+#ifdef __APPLE__
+    // macOS ICMP datagram sockets behave like raw ones: IP header included,
+    // identifier not rewritten, every echo reply from the host delivered
+    const bool kernel_demux = false;
+#else
+    const bool kernel_demux = !raw_; // Linux ping sockets
+#endif
+    if (v4 && n >= 20 && (icmp[0] >> 4) == 4) {
+        // IPv4 raw sockets deliver the IP header too (an ICMP header never starts with 0x4X here)
         size_t ihl = static_cast<size_t>(icmp[0] & 0x0f) * 4;
         if (n < ihl) {
             return;
@@ -760,7 +764,7 @@ void IcmpFlow::on_upstream_data(const char* data, int len) {
     if (icmp[0] != reply_type) {
         return;
     }
-    if (raw_ && read_be16(icmp + 4) != key_.src_port) {
+    if (!kernel_demux && read_be16(icmp + 4) != key_.src_port) {
         return; // a raw socket sees the replies of every flow to this host
     }
     uint16_t seq = read_be16(icmp + 6);
