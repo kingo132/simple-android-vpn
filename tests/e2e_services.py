@@ -4,6 +4,7 @@
   TCP 8080  HTTP (static files from the given directory)
   TCP 7     echo (echoes until the client half-closes, then closes)
   UDP 7     echo
+  UDP 9     answers every datagram with an empty datagram
   UDP 53    DNS: answers A 1.2.3.4 / AAAA 2001:db8::1234 for every name
   TCP 25    "server speaks first": sends a banner, then echoes lines
 """
@@ -113,6 +114,14 @@ def serve_udp_echo():
         s.sendto(data, addr)
 
 
+def serve_udp_empty():
+    s = dual_stack(socket.SOCK_DGRAM)
+    s.bind((ANY, 9))
+    while True:
+        _, addr = s.recvfrom(65535)
+        s.sendto(b"", addr)
+
+
 def dns_answer(query):
     if len(query) < 12:
         return None
@@ -144,7 +153,7 @@ def serve_dns():
 def main():
     directory = sys.argv[1]
     for target, args in ((serve_http, (directory,)), (serve_tcp_echo, ()), (serve_udp_echo, ()),
-                         (serve_dns, ()), (serve_banner, ())):
+                         (serve_udp_empty, ()), (serve_dns, ()), (serve_banner, ())):
         threading.Thread(target=target, args=args, daemon=True).start()
     print("services ready", flush=True)
     threading.Event().wait()
