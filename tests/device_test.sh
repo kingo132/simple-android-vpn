@@ -14,9 +14,21 @@
 #   HOST_IP      IP of this computer as seen from the phone (auto detected)
 #   PORT         tunnel port (default 9443)
 #   SKIP_BUILD=1 reuse the existing build
+#   TOKEN        vpn_token for this run (default: a fresh one per run)
+#   WORK_DIR     server config, logs and pcap (default build/device-test)
 #
 # The phone must reach HOST_IP:PORT: same Wi-Fi, and on macOS allow incoming
 # connections for "mulserver" if the firewall asks.
+#
+# How the phone is driven without taps: debug builds of MainActivity accept
+# "am start ... --es vpn_action connect --es server ... --es token ..." (see
+# MainActivity.handleTestIntent; release builds ignore it). The VPN consent
+# dialog is pre-approved with "appops set ACTIVATE_VPN allow", and if it
+# still shows up, accept_vpn_dialog() taps its OK button via uiautomator.
+# Success is judged from the server log (authentication, DNS / HTTP / TLS log
+# lines) and from logcat (state messages of MyVpnService).
+
+# No "set -e": checks report with pass / fail / warn and the run continues
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,17 +36,20 @@ PKG=com.kingo132.simplevpn
 PORT="${PORT:-9443}"
 TOKEN="${TOKEN:-device-test-$$}"
 WORK="${WORK_DIR:-$ROOT/build/device-test}"
+# adb as an array, so "-s SERIAL" can be added safely
 ADB=(adb)
 [ -n "${ADB_SERIAL:-}" ] && ADB=(adb -s "$ADB_SERIAL")
 SERVER_PID=""
 FAILED=0
 WARNINGS=0
 
+# Output helpers: fail marks the run failed, warn only counts, die aborts
 log() { printf '\033[1;34m==> %s\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mFAIL\033[0m %s\n' "$*"; FAILED=1; }
 warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 die() { fail "$*"; exit 1; }
+# Run a shell command on the phone
 adbs() { "${ADB[@]}" shell "$@"; }
 
 SERVER_LOG="$WORK/log/server.log"
@@ -56,6 +71,8 @@ count_log() {
     echo "${n:-0}"
 }
 
+# start_server <n>: start mulserver in the background and wait until the log
+# contains its n-th "Server started" line (n = 2 after a restart, the log is appended)
 start_server() {
     (cd "$WORK" && exec "$ROOT/build/server/reactor/mulserver" conf/server.ini "$ROOT/build/server/libvpnproxy.so" \
         >> "$WORK/stdout.txt" 2>&1) &
@@ -69,6 +86,7 @@ start_server() {
     return 1
 }
 
+# stop_server: SIGINT = graceful shutdown (closes the tunnels, finishes the pcap files)
 stop_server() {
     if [ -n "$SERVER_PID" ]; then
         kill -INT "$SERVER_PID" 2>/dev/null
@@ -77,6 +95,7 @@ stop_server() {
     fi
 }
 
+# At exit: disconnect the VPN on the phone, stop the server, save logcat
 cleanup() {
     adbs am start -n "$PKG/.MainActivity" --es vpn_action disconnect >/dev/null 2>&1
     sleep 1
@@ -85,6 +104,7 @@ cleanup() {
 }
 
 # Tap the "OK" button of the system VPN consent dialog if it is showing
+# (dump the UI hierarchy, find the button with id android:id/button1 and tap the centre of its bounds)
 accept_vpn_dialog() {
     adbs uiautomator dump /sdcard/svpn_ui.xml >/dev/null 2>&1 || return 1
     local xml
@@ -106,6 +126,7 @@ command -v cmake >/dev/null || die "cmake not found"
     die "no authorized phone (adb devices; accept the USB debugging prompt on the phone, set ADB_SERIAL if several)"
 pass "phone $("${ADB[@]}" get-serialno): $(adbs getprop ro.product.model | tr -d '\r'), Android $(adbs getprop ro.build.version.release | tr -d '\r')"
 
+# The phone connects to this computer's LAN address: find it from the default route
 if [ -z "${HOST_IP:-}" ]; then
     if [ "$(uname -s)" = "Darwin" ]; then
         iface=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
@@ -158,9 +179,11 @@ adbs am force-stop "$PKG" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 log "Starting the VPN server (work dir $WORK)"
+# Fresh work dir; the server listens on all addresses so the phone can reach it over Wi-Fi
 rm -rf "$WORK"
 mkdir -p "$WORK/conf"
 echo "0.0.0.0 $PORT tcp 300" > "$WORK/conf/bind.txt"
+# Test config derived from server/conf/server.ini (token, log file, pcap, QUIC blocked so browsers use TCP + TLS)
 sed -e "s|^vpn_token = .*|vpn_token = $TOKEN|" \
     -e "s|^log_dest = .*|log_dest = 2|" \
     -e "s|^log_dir = .*|log_dir = $WORK/log|" \
@@ -196,10 +219,12 @@ pass "app installed"
 adbs appops set "$PKG" ACTIVATE_VPN allow >/dev/null 2>&1 || true
 
 log "Connecting the VPN"
+# Clear logcat so the checks below only see this run; force-stop for a clean start
 "${ADB[@]}" logcat -c
 adbs am force-stop "$PKG"
 adbs am start -n "$PKG/.MainActivity" --es vpn_action connect --es server "$HOST_IP" --ei port "$PORT" \
     --es token "$TOKEN" --es dns 8.8.8.8 --ez ipv6 false >/dev/null
+# Wait up to 30 s for the server to log the HELLO; try the consent dialog after 3 s and 8 s
 connected=0
 for i in $(seq 30); do
     if grep -q "authenticated: client=android" "$SERVER_LOG"; then
@@ -287,6 +312,7 @@ else
 fi
 
 log "HTTPS in the browser"
+# Open a web page in the default browser: the server should log the TLS ClientHello with its SNI
 adbs am start -a android.intent.action.VIEW -d "https://www.wikipedia.org/" >/dev/null 2>&1
 if wait_log "TLS ClientHello.*SNI=[a-z0-9.-]*wikipedia" 20; then
     pass "server logged: $(grep -E "TLS ClientHello.*wikipedia" "$SERVER_LOG" | head -1 | sed 's/.*\] //' | cut -c1-160)"
@@ -300,6 +326,7 @@ adbs input keyevent KEYCODE_HOME >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 log "Server restart: the app must reconnect by itself"
+# Tests the native client's reconnect with back off (TunnelClient::run)
 stop_server
 start_server 2 || die "server did not restart"
 for _ in $(seq 40); do
@@ -311,6 +338,7 @@ if [ "$(count_log "authenticated: client=android")" -ge 2 ]; then
 else
     fail "app did not reconnect within 40 s"
 fi
+# Generate some traffic and check that new log lines appear
 before=$(count_log "DNS (query|response)|ICMP#|:853 ")
 adbs ping -c 2 -W 5 www.wikipedia.org >/dev/null 2>&1
 sleep 1
@@ -335,6 +363,7 @@ if grep -q "FATAL EXCEPTION" "$WORK/logcat.txt"; then
 else
     pass "no crash in logcat"
 fi
+# Errors in the server log (except the expected authentication ones) are only a warning
 if grep -E "ERROR|CRIT" "$SERVER_LOG" | grep -v "authentication" | head -5 | grep -q .; then
     grep -E "ERROR|CRIT" "$SERVER_LOG" | head -5
     warn "errors in the server log (above)"

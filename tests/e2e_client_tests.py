@@ -77,6 +77,25 @@ def udp_empty_reply(host):
         s.close()
 
 
+def udp_empty_request(host):
+    """An empty datagram from the phone must reach the internet: the UDP echo
+    service answers it with an empty datagram"""
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    s = socket.socket(family, socket.SOCK_DGRAM)
+    s.settimeout(2)
+    try:
+        for _ in range(3):
+            s.sendto(b"", (host, 7))
+            try:
+                if s.recvfrom(65535)[0] == b"":
+                    return True
+            except socket.timeout:
+                pass
+        return False
+    finally:
+        s.close()
+
+
 def banner(host):
     s = socket.create_connection((host, 25), timeout=10)
     f = s.makefile("rwb")
@@ -117,6 +136,7 @@ def main():
         check("udp echo %s" % host, udp_echo(host, 50, 1200) >= 48)
         check("udp echo large datagram %s" % host, udp_echo(host, 5, 8000) >= 4)
         check("udp empty datagram reply %s" % host, udp_empty_reply(host))
+        check("udp empty datagram request %s" % host, udp_empty_request(host))
         check("server speaks first %s" % host, banner(host))
 
     check("QUIC (UDP 443) rejected with ICMP unreachable", quic_rejected(TARGET4))

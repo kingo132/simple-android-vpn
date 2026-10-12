@@ -3,16 +3,33 @@
 # JVM: a Java test double of MyVpnService drives the real native code through
 # the VPN server, inside the network namespaces of tests/e2e_test.sh.
 #   BUILD_DIR=build tests/jni_test.sh      (root, JDK and the server build needed)
+#
+# Why: the JNI layer (thread attach / detach, global references, the protect()
+# and onNativeState() callbacks, the jlong handle) is easy to get wrong and
+# normally needs a phone to test. Here a plain Java class with the same
+# package, name and native method signatures as the Kotlin MyVpnService
+# (tests/jni/com/kingo132/simplevpn/MyVpnService.java) loads the very same
+# native-lib.cpp, compiled for Linux, and gets its TUN fd from
+# tests/jni/tun_helper.cpp instead of VpnService.Builder.
+#
+# Steps: build the two native libraries and the Java class, let e2e_test.sh
+# set up the network namespaces and the server (without its Linux client),
+# run the Java program in the "phone" namespace, send HTTP traffic through it,
+# check the results, clean up. Exit code 0 = all checks passed.
+# No "set -e": every check runs and reports, RC collects the result
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD_DIR:-$ROOT/build}"
 WORK="${WORK_DIR:-$(mktemp -d /tmp/svpn-jni.XXXXXX)}"
 mkdir -p "$WORK/lib" "$WORK/classes"
+# JAVA_HOME (for jni.h): derived from the javac on the PATH unless already set
 JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}"
 CPP="$ROOT/client/app/src/main/cpp"
 
+# The real JNI glue + tunnel core, as libsimplevpn.so (the name System.loadLibrary("simplevpn") looks for)
 g++ -std=c++11 -O2 -Wall -shared -fPIC -pthread -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
     -I"$CPP" -I"$ROOT/common" "$CPP/native-lib.cpp" "$CPP/tunnel_client.cpp" -o "$WORK/lib/libsimplevpn.so" || exit 1
+# Test-only helper that opens a TUN device (MyVpnService.openTun)
 g++ -std=c++11 -O2 -shared -fPIC -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
     "$ROOT/tests/jni/tun_helper.cpp" -o "$WORK/lib/libtunhelper.so" || exit 1
 javac -d "$WORK/classes" "$ROOT/tests/jni/com/kingo132/simplevpn/MyVpnService.java" || exit 1
@@ -21,15 +38,20 @@ javac -d "$WORK/classes" "$ROOT/tests/jni/com/kingo132/simplevpn/MyVpnService.ja
 E2E_SETUP_ONLY=1 E2E_NO_CLIENT=1 BUILD_DIR="$BUILD" WORK_DIR="$WORK/e2e" "$ROOT/tests/e2e_test.sh" > "$WORK/setup.log" 2>&1 || {
     cat "$WORK/setup.log"; exit 1; }
 
+# Run the Java test double in the phone namespace: server 172.30.0.1:9443, token, 8 s of traffic
+# before it simulates a network change (nativeReconnect) and stops
 ip netns exec svpn_phone java -Djava.library.path="$WORK/lib" -cp "$WORK/classes" \
     com.kingo132.simplevpn.MyVpnService 172.30.0.1 9443 e2e-secret 8 > "$WORK/java.log" 2>&1 &
 JAVA_PID=$!
+# Wait (up to 10 s) until the tunnel is connected and the default route points into tun0
 for _ in $(seq 100); do grep -q READY "$WORK/java.log" && break; sleep 0.1; done
+# Traffic through the JNI tunnel (the server rewrites "Hello SimpleVPN" to "Hello Rewritten")
 out=$(ip netns exec svpn_phone curl --noproxy '*' -s -m 10 http://198.51.100.10:8080/index.html)
 sha=$(ip netns exec svpn_phone curl --noproxy '*' -s -m 30 http://198.51.100.10:8080/big.bin | sha256sum | cut -d' ' -f1)
 wait $JAVA_PID
 cat "$WORK/java.log"
 
+# Verdicts
 RC=0
 [ "$out" = "Hello Rewritten" ] && echo "PASS HTTP through the JNI tunnel" || { echo "FAIL HTTP got '$out'"; RC=1; }
 [ "$sha" = "$(sha256sum "$WORK/e2e/www/big.bin" | cut -d' ' -f1)" ] && echo "PASS 50 MB download through the JNI tunnel" || { echo "FAIL download"; RC=1; }
