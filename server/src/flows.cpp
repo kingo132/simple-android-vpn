@@ -698,7 +698,7 @@ bool IcmpFlow::start() {
         return false;
     }
     has_upstream_ = true;
-    LOG_DEBUG("%s new (%s socket)", name_.c_str(), raw_ ? "raw" : "ping");
+    LOG_INFO("%s new (%s socket)", name_.c_str(), raw_ ? "raw" : "ping");
     return true;
 }
 

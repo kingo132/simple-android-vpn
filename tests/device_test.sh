@@ -239,7 +239,11 @@ if wait_log "DNS (query|response).*google|:853 " 5; then
 else
     fail "no DNS traffic in the server log"
 fi
-wait_log "ICMP#.*" 3 && pass "server logged the ICMP flow"
+if wait_log "ICMP#[0-9]+ .* new" 3; then
+    pass "server logged: $(grep -E "ICMP#[0-9]+ .* new" "$SERVER_LOG" | head -1 | sed 's/.*\] //' | cut -c1-150)"
+else
+    warn "no ICMP flow in the server log"
+fi
 
 if adbs 'command -v nc' >/dev/null 2>&1; then
     log "Plain HTTP with netcat on the phone"
