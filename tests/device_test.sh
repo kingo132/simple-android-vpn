@@ -131,12 +131,30 @@ if [ -z "${SKIP_BUILD:-}" ]; then
         sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
         echo "sdk.dir=$sdk" > "$ROOT/client/local.properties"
     fi
+    # Gradle 8.7 runs on Java 17..21; newer JDKs (Android Studio now bundles
+    # Java 25) fail with just the version number as the error.
+    jver=$("${JAVA_HOME:+$JAVA_HOME/bin/}java" -version 2>&1 | awk -F'"' '/version/{split($2, v, "."); print v[1]; exit}')
+    if [ "${jver:-0}" -gt 21 ] 2>/dev/null || [ "${jver:-0}" -lt 17 ] 2>/dev/null; then
+        for v in 21 17; do
+            jh=$( { [ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v "$v" 2>/dev/null; } ||
+                ls -d /usr/lib/jvm/*-"$v"-* 2>/dev/null | head -1)
+            if [ -n "$jh" ] && "$jh/bin/java" -version 2>&1 | grep -q "version \"$v\."; then
+                export JAVA_HOME="$jh"
+                log "Java $jver is not supported by Gradle 8.7, using $JAVA_HOME"
+                break
+            fi
+        done
+    fi
     (cd "$ROOT/client" && ./gradlew assembleDebug > "$ROOT/build-gradle.log" 2>&1) ||
         { tail -40 "$ROOT/build-gradle.log"; die "app build failed (log: build-gradle.log)"; }
     pass "app built"
 fi
 APK="$ROOT/client/app/build/outputs/apk/debug/app-debug.apk"
 [ -f "$APK" ] || die "missing $APK"
+
+# A VPN left up by an earlier run would capture the shell traffic below
+# (and keep retrying with its old token): stop the app first.
+adbs am force-stop "$PKG" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 log "Starting the VPN server (work dir $WORK)"
@@ -225,23 +243,35 @@ wait_log "ICMP#.*" 3 && pass "server logged the ICMP flow"
 
 if adbs 'command -v nc' >/dev/null 2>&1; then
     log "Plain HTTP with netcat on the phone"
-    adbs "printf 'GET / HTTP/1.1\r\nHost: neverssl.com\r\nUser-Agent: simplevpn-device-test\r\nConnection: close\r\n\r\n' | nc -w 10 neverssl.com 80" \
-        > "$WORK/http.txt" 2>&1
-    if head -1 "$WORK/http.txt" | grep -q "^HTTP/1.1 200"; then
-        pass "HTTP response received on the phone ($(wc -c < "$WORK/http.txt" | tr -d ' ') bytes)"
+    # Several sites: from some networks one of them only answers every other SYN.
+    # nc half-closes the connection on stdin EOF, and some servers (Cloudflare,
+    # speedtest.tele2.net) then stop answering: keep stdin open until nc exits.
+    http_host=""
+    for h in example.com info.cern.ch neverssl.com; do
+        adbs "{ printf 'GET / HTTP/1.1\r\nHost: $h\r\nUser-Agent: simplevpn-device-test\r\nConnection: close\r\n\r\n'; sleep 61; } |
+            nc -w 10 -W 20 $h 80 | { cat; pkill -f 'sleep 61'; }" > "$WORK/http.txt" 2>&1
+        if head -1 "$WORK/http.txt" | grep -q "^HTTP/1.1 200"; then
+            http_host=$h
+            break
+        fi
+        warn "no HTTP response from $h: $(head -1 "$WORK/http.txt" | tr -d '\r')"
+    done
+    if [ -n "$http_host" ]; then
+        pass "HTTP response from $http_host received on the phone ($(wc -c < "$WORK/http.txt" | tr -d ' ') bytes)"
+        if wait_log "HTTP GET / HTTP/1.1 Host=$http_host" 5; then
+            pass "server logged: $(grep "Host=$http_host" "$SERVER_LOG" | head -1 | sed 's/.*\] //' | cut -c1-150)"
+        else
+            fail "HTTP request not in the server log"
+        fi
     else
-        head -5 "$WORK/http.txt"
         fail "no HTTP response through the VPN"
-    fi
-    if wait_log "HTTP GET / HTTP/1.1 Host=neverssl.com" 5; then
-        pass "server logged: $(grep "Host=neverssl.com" "$SERVER_LOG" | head -1 | sed 's/.*\] //' | cut -c1-150)"
-    else
-        fail "HTTP request not in the server log"
     fi
 
     log "Download speed (10 MB, best effort)"
+    # stdin kept open as above (tele2 stops after ~270 KB on a half-close)
     start=$(date +%s)
-    bytes=$(adbs "printf 'GET /10MB.zip HTTP/1.1\r\nHost: speedtest.tele2.net\r\nConnection: close\r\n\r\n' | nc -w 20 speedtest.tele2.net 80 | wc -c" 2>/dev/null | tr -d '\r ')
+    bytes=$(adbs "{ printf 'GET /10MB.zip HTTP/1.1\r\nHost: speedtest.tele2.net\r\nConnection: close\r\n\r\n'; sleep 61; } |
+        nc -w 10 -W 20 speedtest.tele2.net 80 | { wc -c; pkill -f 'sleep 61'; }" 2>/dev/null | tr -d '\r ')
     secs=$(( $(date +%s) - start ))
     if [ "${bytes:-0}" -gt 10000000 ] 2>/dev/null; then
         pass "downloaded $bytes bytes in ${secs}s"
