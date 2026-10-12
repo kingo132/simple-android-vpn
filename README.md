@@ -40,7 +40,7 @@ TCP / UDP / ICMP 连接在用户态终结掉，打印到日志（HTTP 请求、T
   * 改写：`vpn_rewrite_N` 规则对明文 TCP 流做字符串替换（上行 / 下行）
   * `vpn_block_quic`：拒绝 UDP 443，让浏览器回退到 TCP + TLS（这样能看到 SNI）
 * **pcap 抓包**：每个会话写一个 pcap 文件，直接用 Wireshark 打开
-* 隧道：token 认证、心跳、断线自动重连（指数退避）
+* 隧道：token 认证、心跳、断线自动重连（指数退避），手机切换 Wi-Fi / 移动数据时立即重连
 * Android App：服务器/端口/token/DNS/MTU 设置、只代理指定 App、IPv6 开关、实时状态和流量统计、always-on VPN
 
 ## 目录结构

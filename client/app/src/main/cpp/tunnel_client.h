@@ -74,11 +74,15 @@ public:
     // Thread safe, may be called from any thread
     void stop();
 
+    // Drop the current server connection and connect again right away, e.g.
+    // after the phone switched between Wi-Fi and mobile data. Thread safe.
+    void reconnect();
+
     const TunnelStats& stats() const { return stats_; }
     std::string last_message() const;
 
 private:
-    enum class SessionEnd { Stopped, Disconnected, AuthFailed };
+    enum class SessionEnd { Stopped, Disconnected, AuthFailed, NetworkChanged };
 
     int connect_server();
     SessionEnd run_session(int sock);
@@ -90,6 +94,7 @@ private:
     TunnelClientConfig config_;
     TunnelStats stats_;
     std::atomic<bool> stop_requested_{false};
+    std::atomic<bool> reconnect_requested_{false};
     int wake_pipe_[2] = {-1, -1};
     mutable std::mutex message_mutex_;
     std::string last_message_;

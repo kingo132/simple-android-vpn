@@ -165,6 +165,14 @@ Java_com_kingo132_simplevpn_MyVpnService_nativeStop(JNIEnv* env, jobject /*thiz*
     delete tunnel;
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_kingo132_simplevpn_MyVpnService_nativeReconnect(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    NativeTunnel* tunnel = reinterpret_cast<NativeTunnel*>(handle);
+    if (tunnel != nullptr) {
+        tunnel->client->reconnect();
+    }
+}
+
 // [state, tx packets, tx bytes, rx packets, rx bytes, dropped, reconnects, connected since (ms)]
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_kingo132_simplevpn_MyVpnService_nativeGetStats(JNIEnv* env, jobject /*thiz*/, jlong handle) {

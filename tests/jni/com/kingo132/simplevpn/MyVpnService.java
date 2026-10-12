@@ -30,6 +30,7 @@ public class MyVpnService {
 
     native long nativeStart(int tunFd, String server, int port, String token, int mtu, String ipv4, String ipv6);
     native void nativeStop(long handle);
+    native void nativeReconnect(long handle);
     native long[] nativeGetStats(long handle);
 
     static native int openTun(String name);
@@ -64,12 +65,22 @@ public class MyVpnService {
         System.out.println("[java] READY");
 
         Thread.sleep(seconds * 1000L);
+        // simulate a network change: the tunnel must come back right away
+        service.nativeReconnect(handle);
+        long reconnectStart = System.currentTimeMillis();
+        Thread.sleep(200);
+        while (service.lastState != 2 && System.currentTimeMillis() - reconnectStart < 5000) {
+            Thread.sleep(20);
+        }
+        System.out.println("[java] reconnected after " + (System.currentTimeMillis() - reconnectStart) + " ms, state "
+                + service.lastState);
         long[] stats = service.nativeGetStats(handle);
         service.nativeStop(handle);
         System.out.println("[java] stats state=" + stats[0] + " tx=" + stats[1] + "/" + stats[2] + " rx=" + stats[3]
                 + "/" + stats[4] + " dropped=" + stats[5] + " reconnects=" + stats[6] + " protect=" + service.protectCalls
                 + " final state=" + service.lastState);
-        System.out.println(service.lastState == 4 && stats[3] > 0 && service.protectCalls > 0 ? "[java] JNI OK" : "[java] JNI FAILED");
+        boolean ok = service.lastState == 4 && stats[3] > 0 && stats[6] == 1 && service.protectCalls == 2;
+        System.out.println(ok ? "[java] JNI OK" : "[java] JNI FAILED");
     }
 
     private static void run(String cmd) throws Exception {

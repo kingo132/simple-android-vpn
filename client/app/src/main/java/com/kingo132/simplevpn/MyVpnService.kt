@@ -3,6 +3,8 @@ package com.kingo132.simplevpn
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -24,9 +26,31 @@ class MyVpnService : VpnService() {
     @Volatile
     private var nativeHandle = 0L
 
+    /** The physical network the tunnel currently uses (our own app is not routed into the VPN). */
+    @Volatile
+    private var currentNetwork: Network? = null
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            val previous = currentNetwork
+            currentNetwork = network
+            val handle = nativeHandle
+            if (previous != null && previous != network && handle != 0L) {
+                // Wi-Fi <-> mobile data: the old TCP connection is dead, do not wait for the keepalive
+                Log.i(TAG, "default network changed, reconnecting the tunnel")
+                nativeReconnect(handle)
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        try {
+            getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(networkCallback)
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot watch network changes", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -52,6 +76,11 @@ class MyVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        try {
+            getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(networkCallback)
+        } catch (e: Exception) {
+            Log.w(TAG, "unregisterNetworkCallback failed", e)
+        }
         worker.execute { disconnect() }
         worker.shutdown()
         if (instance === this) {
@@ -169,6 +198,8 @@ class MyVpnService : VpnService() {
     ): Long
 
     private external fun nativeStop(handle: Long)
+
+    private external fun nativeReconnect(handle: Long)
 
     private external fun nativeGetStats(handle: Long): LongArray
 

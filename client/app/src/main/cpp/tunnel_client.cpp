@@ -92,6 +92,15 @@ void TunnelClient::stop() {
     }
 }
 
+void TunnelClient::reconnect() {
+    reconnect_requested_ = true;
+    if (wake_pipe_[1] >= 0) {
+        char c = 1;
+        ssize_t r = write(wake_pipe_[1], &c, 1);
+        (void)r;
+    }
+}
+
 std::string TunnelClient::last_message() const {
     std::lock_guard<std::mutex> lock(message_mutex_);
     return last_message_;
@@ -139,6 +148,14 @@ bool TunnelClient::wait_backoff(int ms) {
         int n = poll(fds, 2, static_cast<int>(std::min<int64_t>(left, 1000)));
         if (n > 0 && (fds[1].revents & POLLIN)) {
             drain_tun();
+        }
+        if (n > 0 && (fds[0].revents & POLLIN)) {
+            char buf[64];
+            while (read(wake_pipe_[0], buf, sizeof(buf)) > 0) {
+            }
+            if (reconnect_requested_.exchange(false)) {
+                return !stop_requested_; // a new network: try right away
+            }
         }
     }
     return false;
@@ -343,6 +360,11 @@ TunnelClient::SessionEnd TunnelClient::run_session(int sock) {
                 end = SessionEnd::Stopped;
                 break;
             }
+            if (reconnect_requested_.exchange(false)) {
+                end_message = "network changed";
+                end = SessionEnd::NetworkChanged;
+                break;
+            }
         }
 
         // Server -> TUN. Work in small batches and drain the TUN in between:
@@ -440,6 +462,11 @@ void TunnelClient::run() {
             break;
         }
         ++stats_.reconnects;
+        if (end == SessionEnd::NetworkChanged) {
+            set_state(TunnelState::Reconnecting, "network changed, reconnecting");
+            backoff = 1000;
+            continue;
+        }
         if (end == SessionEnd::AuthFailed) {
             set_state(TunnelState::AuthFailed, last_message());
             backoff = config_.max_backoff_ms;
