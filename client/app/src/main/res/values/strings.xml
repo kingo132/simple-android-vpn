@@ -2,4 +2,21 @@
     <string name="app_name">SimpleVPN</string>
     <string name="start_vpn">Start VPN</string>
     <string name="stop_vpn">Stop VPN</string>
+    <string name="server_hint">Server address (IP or host name)</string>
+    <string name="port_hint">Port</string>
+    <string name="token_hint">Token (vpn_token of the server)</string>
+    <string name="dns_hint">DNS server</string>
+    <string name="mtu_hint">MTU</string>
+    <string name="apps_hint">Only these apps (package names, comma separated). Empty = all apps</string>
+    <string name="ipv6_label">Route IPv6 through the VPN</string>
+    <string name="server_required">Please enter the server address</string>
+    <string name="permission_denied">VPN permission denied</string>
+    <string name="status_format">Status: %1$s\n%2$s</string>
+    <string name="state_idle">idle</string>
+    <string name="state_connecting">connecting</string>
+    <string name="state_connected">connected</string>
+    <string name="state_reconnecting">reconnecting</string>
+    <string name="state_auth_failed">authentication failed</string>
+    <string name="state_failed">failed</string>
+    <string name="state_stopped">stopped</string>
 </resources>

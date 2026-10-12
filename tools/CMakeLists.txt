@@ -1,0 +1,10 @@
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+set(CLIENT_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../client/app/src/main/cpp)
+add_executable(simplevpn-client linux_client/main.cpp ${CLIENT_CORE_DIR}/tunnel_client.cpp)
+target_include_directories(simplevpn-client PRIVATE ${CLIENT_CORE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+target_link_libraries(simplevpn-client PRIVATE Threads::Threads)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(simplevpn-client PRIVATE -Wall -Wextra)
+endif()
