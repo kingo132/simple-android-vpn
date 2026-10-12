@@ -1,0 +1,4 @@
+#ip          #port    #type    #idle timeout (seconds, 0 = never)
+# The tunnel port the phones connect to. Use 0.0.0.0 to listen on all IPv4
+# addresses (and add a "::" line for IPv6).
+0.0.0.0      9443     tcp      300

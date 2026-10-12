@@ -1,0 +1,7 @@
+build/
+build-*/
+*.o
+*.so
+.DS_Store
+server/log/
+server/pcap/
