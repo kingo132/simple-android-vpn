@@ -152,6 +152,7 @@ void Session::send_packet(const std::string& packet) {
     ++packets_out_;
     bytes_out_ += packet.size();
     pcap_.write(reinterpret_cast<const uint8_t*>(packet.data()), packet.size());
+    g_live_capture.publish(reinterpret_cast<const uint8_t*>(packet.data()), packet.size());
     if (g_inspector.log_packets()) {
         ParsedPacket p;
         if (parse_packet(reinterpret_cast<const uint8_t*>(packet.data()), packet.size(), p, nullptr)) {
@@ -270,6 +271,7 @@ void Session::handle_packet(const uint8_t* data, size_t len) {
     ++packets_in_;
     bytes_in_ += len;
     pcap_.write(data, len);
+    g_live_capture.publish(data, len);
 
     ParsedPacket p;
     std::string error;
@@ -495,10 +497,14 @@ void Session::on_timer(int64_t now) {
     }
     reap();
     reassembler_.expire(now);
+    if (now - last_flush_ms_ >= 1000) {
+        // keep the pcap file current so it can be followed while capturing
+        last_flush_ms_ = now;
+        pcap_.flush();
+    }
     if (g_vpn_config.stats_interval_s > 0 && now - last_stats_ms_ >= g_vpn_config.stats_interval_s * 1000LL) {
         last_stats_ms_ = now;
         log_stats("stats");
-        pcap_.flush();
     }
 }
 

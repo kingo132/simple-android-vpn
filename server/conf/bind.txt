@@ -2,3 +2,6 @@
 # The tunnel port the phones connect to. Use 0.0.0.0 to listen on all IPv4
 # addresses (and add a "::" line for IPv6).
 0.0.0.0      9443     tcp      300
+# Live pcap stream for Wireshark (vpn_capture_port). Keep it on 127.0.0.1;
+# from another machine use an SSH tunnel: ssh -L 9444:127.0.0.1:9444 server
+127.0.0.1    9444     tcp      0

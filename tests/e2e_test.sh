@@ -79,7 +79,7 @@ SERVICES_PID=$!
 
 log "VPN server"
 mkdir -p "$WORK/server/conf"
-echo "172.30.0.1 9443 tcp 300" > "$WORK/server/conf/bind.txt"
+printf "172.30.0.1 9443 tcp 300\n127.0.0.1 9444 tcp 0\n" > "$WORK/server/conf/bind.txt"
 sed -e "s|^vpn_token = .*|vpn_token = $TOKEN|" \
     -e "s|^log_level = .*|log_level = ${LOG_LEVEL:-6}|" \
     -e "s|^log_dest = .*|log_dest = 2|" \
@@ -126,12 +126,20 @@ if [ -n "${E2E_SETUP_ONLY:-}" ]; then
 fi
 
 log "HTTP"
+nc 127.0.0.1 9444 > "$WORK/live.pcap" &
+LIVE_PID=$!
+sleep 0.5
 out=$(in_phone curl --noproxy '*' -s -m 10 http://198.51.100.10:8080/index.html)
 [ "$out" = "Hello Rewritten" ] && pass "HTTP GET over IPv4 (response rewritten by rule)" || fail "HTTP GET got '$out'"
 if [ $HAVE_V6 = 1 ]; then
     out=$(in_phone curl --noproxy '*' -s -m 10 "http://[2001:db8:100::10]:8080/index.html")
     [ "$out" = "Hello Rewritten" ] && pass "HTTP GET over IPv6" || fail "HTTP GET IPv6 got '$out'"
 fi
+
+sleep 1
+kill $LIVE_PID 2>/dev/null; wait $LIVE_PID 2>/dev/null
+n=$(tcpdump -nr "$WORK/live.pcap" 'tcp port 8080' 2>/dev/null | wc -l)
+[ "$n" -gt 5 ] && pass "live capture stream readable by tcpdump ($n HTTP packets)" || fail "live capture got $n packets"
 
 start=$(date +%s.%N)
 sha=$(in_phone curl --noproxy '*' -s -m 120 http://198.51.100.10:8080/big.bin | sha256sum | cut -d' ' -f1)

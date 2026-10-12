@@ -132,10 +132,25 @@ S2 TCP#68 172.19.0.2:45030 -> 198.51.100.10:443 C->S TLS ClientHello TLS1.3 SNI=
 | `vpn_log_packets = 1` | 每个 IP 包一行摘要（`S2 > TCP ... [S] seq=...`，`>` 手机发出，`<` 发给手机） |
 | `vpn_log_payload_bytes = 256` | 每个 TCP 数据块 / UDP 包十六进制 dump 前 256 字节 |
 | `vpn_pcap_dir = ./pcap` | 每个会话一个 pcap 文件（手机看到的原始 IP 包，两个方向都有） |
+| `vpn_capture_port = 9444` | 实时抓包：连到这个端口就收到所有会话的 pcap 流，`tools/wireshark_live.sh` 直接在 Wireshark 里实时显示 |
 | `vpn_block_domains = a.com,b.com` | 屏蔽域名及其子域名（DNS → NXDOMAIN，TLS SNI / HTTP Host → RST） |
 | `vpn_rewrite_1 = down\|Example Domain\|Hacked! Domain` | 改写明文流，`up` 手机→服务器，`down` 服务器→手机；端口由 `vpn_rewrite_ports` 指定 |
 | `vpn_block_quic = 1` | 拒绝 QUIC，逼 App 走 TCP + TLS |
 | `log_level = 7` | debug：连接建立、FIN、重传等 TCP 细节 |
+
+### 在 Wireshark 里实时看手机的流量
+
+服务端在 `vpn_capture_port`（默认 `127.0.0.1:9444`，`conf/bind.txt` 里也要有这一行）上输出实时 pcap 流，
+包含所有手机的所有包（手机视角，两个方向），手机重连也不会断：
+
+```bash
+tools/wireshark_live.sh                  # 服务端在本机
+tools/wireshark_live.sh user@server      # 服务端在远程服务器，通过 SSH 转发
+nc 127.0.0.1 9444 | wireshark -k -i -    # 等价的手动命令
+```
+
+为了安全只接受本机（loopback）连接，远程请用 SSH；`vpn_capture_allow_remote = 1` 可以放开（任何能连上的人都能看到全部流量）。
+Wireshark 看得慢时服务端会整条丢弃抓包记录，不影响手机上网。每个会话的 pcap 文件每秒落盘一次，也可以 `tail -f` 着看。
 
 想写自己的分析/修改逻辑，改 `server/src/inspector.cpp` 的 `Inspector::inspect_tcp()` / `inspect_udp()` 即可：
 每一块经过代理的数据都会经过这里，可以记录、修改（`std::string& data`，长度随意）或返回 `kBlock` 断开连接。
