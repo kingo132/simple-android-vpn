@@ -96,6 +96,13 @@ SERVER_PID=$!
 sleep 1
 grep -q "Server started" "$WORK/server/log/server.log" || { fail "server did not start"; cat "$WORK/server/stdout.txt"; exit 1; }
 
+if [ -n "${E2E_NO_CLIENT:-}" ]; then
+    echo "$SERVICES_PID $SERVER_PID" > "$WORK/pids"
+    trap - EXIT
+    echo "Setup done without client (server pid $SERVER_PID)"
+    exit 0
+fi
+
 log "VPN client in the phone namespace"
 V6_ARG=""
 [ $HAVE_V6 = 1 ] && V6_ARG="--ipv6 fd00:5356::2/64"
@@ -113,6 +120,7 @@ if [ -n "${E2E_SETUP_ONLY:-}" ]; then
     trap - EXIT
     echo "Setup done, environment left running. Try: ip netns exec $PHONE curl http://198.51.100.10:8080/"
     echo "Clean up with: ip netns del $PHONE; ip netns del $INET; kill $SERVER_PID $CLIENT_PID $SERVICES_PID"
+    echo "$SERVICES_PID $SERVER_PID $CLIENT_PID" > "$WORK/pids"
     exit 0
 fi
 
@@ -136,7 +144,7 @@ out=$(in_phone curl --noproxy '*' -s -m 120 --data-binary @"$WORK/upload.bin" ht
 
 ok=0
 for i in $(seq 20); do
-    (in_phone curl --noproxy '*' -s -m 60 http://198.51.100.10:8080/big.bin | sha256sum | cut -d' ' -f1 > "$WORK/par.$i") &
+    (in_phone curl --noproxy '*' -s -m ${PARALLEL_TIMEOUT:-120} http://198.51.100.10:8080/big.bin | sha256sum | cut -d' ' -f1 > "$WORK/par.$i") &
 done
 wait $(jobs -p | grep -v -e "^$SERVICES_PID$" -e "^$SERVER_PID$" -e "^$CLIENT_PID$") 2>/dev/null
 for i in $(seq 20); do [ "$(cat "$WORK/par.$i")" = "$BIG_SHA" ] && ok=$((ok + 1)); done

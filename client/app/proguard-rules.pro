@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Called from native code (native-lib.cpp) by name
+-keepclassmembers class com.kingo132.simplevpn.MyVpnService {
+    native <methods>;
+    private void onNativeState(int, java.lang.String);
+}
