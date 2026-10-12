@@ -891,9 +891,10 @@ void UdpFlow::on_packet(const ParsedPacket& p) {
         }
         return;
     }
-    if (p.payload_len > 0) {
-        srv_send(&upstream_, p.payload, static_cast<int>(p.payload_len));
-    }
+    // Forward every datagram, also an empty one: for UDP "zero bytes" is a
+    // real message (keepalives, probes), and srv_send() accepts len == 0 on
+    // datagram sockets.
+    srv_send(&upstream_, p.payload, static_cast<int>(p.payload_len));
 }
 
 /** For UDP "connecting" cannot really fail later; just handle an error. */
@@ -910,6 +911,9 @@ void UdpFlow::on_upstream_open(int error) {
  * source. Session::send_packet() fragments it if it exceeds the tunnel MTU.
  */
 void UdpFlow::on_upstream_data(const char* data, int len) {
+    // data == nullptr would be the engine's EOF signal, which a datagram
+    // socket never produces; an empty datagram arrives as len == 0 with a
+    // non-NULL data and is forwarded to the phone like any other.
     if (dead_ || data == nullptr) {
         return;
     }

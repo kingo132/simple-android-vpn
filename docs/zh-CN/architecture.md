@@ -568,6 +568,7 @@ sequenceDiagram
 * `vpn_block_quic = 1` 时，对发往 443 端口的新 UDP 流回 ICMP port unreachable，让浏览器回退到
   TCP + TLS（参见 [Inspector 与抓包](inspector-and-capture.md)）。
 * 隧道拥塞时，下行的数据报会被丢弃：UDP 协议本身能应对丢包，缓存它们只会增加延迟。
+* 空数据报（负载为 0 字节）也是真正的 UDP 消息，两个方向都会被转发；引擎不会把它误认为流结束信号。
 
 ## 9. ICMP echo（ping）
 

@@ -72,7 +72,7 @@ flowchart TD
     D --> H["HTTP: GET, rewrite, 50 MB download and<br/>20 MB upload with checksums, 20 parallel downloads"]
     H --> N["DNS: answers, blocked domain gets NXDOMAIN"]
     N --> I["ICMP: ping, 6000-byte ping (fragmentation),<br/>raw socket and ping socket"]
-    I --> S["sockets: TCP echo 1 B to 5 MB, half close,<br/>UDP echo incl. 8000-byte datagrams,<br/>server-first banner protocol, refused port, QUIC rejected"]
+    I --> S["sockets: TCP echo 1 B to 5 MB, half close,<br/>UDP echo incl. 8000-byte datagrams,<br/>empty datagrams in both directions,<br/>server-first banner protocol, refused port, QUIC rejected"]
     S --> T["blocked TLS SNI gets a reset"]
     T --> R["restart the server: the client reconnects"]
     R --> W["wrong token: rejected"]

@@ -72,7 +72,7 @@ flowchart TD
     D --> H["HTTP：GET、改写、带校验和的 50 MB 下载和<br/>20 MB 上传、20 个并发下载"]
     H --> N["DNS：应答，被屏蔽的域名得到 NXDOMAIN"]
     N --> I["ICMP：ping、6000 字节 ping (分片)、<br/>raw socket 和 ping socket"]
-    I --> S["socket：TCP echo 1 B 到 5 MB、半关闭、<br/>UDP echo，包括 8000 字节数据报、<br/>服务器先说话的 banner 协议、被拒绝的端口、QUIC 被拒绝"]
+    I --> S["socket：TCP echo 1 B 到 5 MB、半关闭、<br/>UDP echo，包括 8000 字节数据报、<br/>双向的空数据报、<br/>服务器先说话的 banner 协议、被拒绝的端口、QUIC 被拒绝"]
     S --> T["被屏蔽的 TLS SNI 收到 reset"]
     T --> R["重启服务器：客户端自动重连"]
     R --> W["错误的 token：被拒绝"]

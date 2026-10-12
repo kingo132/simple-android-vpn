@@ -576,6 +576,8 @@ sequenceDiagram
   back to TCP + TLS (see [Inspector and capture](inspector-and-capture.md)).
 * When the tunnel is congested, downstream datagrams are dropped: UDP protocols cope with loss, and
   buffering them would only add latency.
+* Empty datagrams (zero bytes of payload) are real UDP messages and are forwarded in both
+  directions; the engine never confuses them with an end-of-stream signal.
 
 ## 9. ICMP echo (ping)
 
