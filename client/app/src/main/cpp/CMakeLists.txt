@@ -20,6 +20,10 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
 
+# Android 15+ devices may use 16 KB memory pages: align the ELF segments to
+# 16 KB (NDK r27 and older default to 4 KB, which such devices refuse / warn about)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+
 target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         log)
