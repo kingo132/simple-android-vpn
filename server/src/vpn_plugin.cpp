@@ -9,6 +9,7 @@
 #include <cstring>
 #include <memory>
 #include <random>
+#include <sys/socket.h>
 #include <sys/stat.h>
 
 #include "flows.h"
@@ -27,6 +28,21 @@ Session* find_session(uint64_t conn_id) {
     }
     auto it = t_worker->sessions.find(conn_id);
     return it == t_worker->sessions.end() ? nullptr : it->second.get();
+}
+
+// A connection to the live capture port (not a VPN tunnel)
+bool is_capture_client(const SocketInfo* si) {
+    return g_vpn_config.capture_port != 0 && si->local_addr.port == g_vpn_config.capture_port;
+}
+
+bool is_loopback(const NetAddr& addr) {
+    static const uint8_t kV6Loopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const uint8_t kV4Mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+    if (addr.family == AF_INET) {
+        return addr.ip[0] == 127;
+    }
+    return std::memcmp(addr.ip, kV6Loopback, 16) == 0 ||
+           (std::memcmp(addr.ip, kV4Mapped, 12) == 0 && addr.ip[12] == 127);
 }
 
 Flow* find_flow(uint64_t flow_id) {
@@ -63,6 +79,8 @@ void load_config() {
     c.tcp_flow_buffer = static_cast<size_t>(flow_buffer < 65536 ? 65536 : flow_buffer);
     c.pcap_dir = srv_conf_string("vpn_pcap_dir", "");
     c.pcap_max_bytes = static_cast<size_t>(srv_conf_int("vpn_pcap_max_mb", 100)) << 20;
+    c.capture_port = srv_conf_int("vpn_capture_port", 0);
+    c.capture_allow_remote = srv_conf_int("vpn_capture_allow_remote", 0) != 0;
     c.block_private_targets = srv_conf_int("vpn_block_private", 0) != 0;
     c.block_quic = srv_conf_int("vpn_block_quic", 0) != 0;
     c.stats_interval_s = srv_conf_int("vpn_stats_interval", c.stats_interval_s);
@@ -89,6 +107,11 @@ int handle_init(int /*argc*/, char** /*argv*/, int thread_type) {
                     static_cast<unsigned>(tunnel::kHeaderSize + tunnel::kMaxPayload));
             return -1;
         }
+        if (g_vpn_config.capture_port != 0) {
+            LOG_INFO("Live capture on port %d: nc 127.0.0.1 %d | wireshark -k -i -   (the port must be in the bind "
+                     "file)",
+                     g_vpn_config.capture_port, g_vpn_config.capture_port);
+        }
         LOG_INFO("SimpleVPN plugin ready: tcp window %u, pcap %s, block private targets %s", g_vpn_config.tcp_window,
                  g_vpn_config.pcap_dir.empty() ? "off" : g_vpn_config.pcap_dir.c_str(),
                  g_vpn_config.block_private_targets ? "yes" : "no");
@@ -110,6 +133,9 @@ void handle_fini(int thread_type) {
 
 // [CONN thread] frame boundaries of the tunnel stream
 int handle_input_from_client(const char* data, int len, const SocketInfo* si) {
+    if (is_capture_client(si)) {
+        return len; // capture clients only read; whatever they send is ignored
+    }
     long total = tunnel::parse_header(reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len), nullptr,
                                       nullptr);
     if (total < 0) {
@@ -121,12 +147,26 @@ int handle_input_from_client(const char* data, int len, const SocketInfo* si) {
 }
 
 int handle_client_open(char** /*send_data*/, int* /*send_len*/, const SocketInfo* si) {
+    char addr[64];
+    if (is_capture_client(si)) {
+        srv_addr_to_string(&si->remote_addr, addr, sizeof(addr));
+        if (!g_vpn_config.capture_allow_remote && !is_loopback(si->remote_addr)) {
+            LOG_WARN("Live capture client %s rejected (not loopback, see vpn_capture_allow_remote)", addr);
+            return -1;
+        }
+        g_live_capture.add_subscriber(*si);
+        LOG_INFO("Live capture client %s connected", addr);
+        return 0;
+    }
     t_worker->sessions[si->conn_id].reset(new Session(*si, si->conn_id));
     return 0;
 }
 
 int handle_message_from_client(const char* data, int len, char** /*send_data*/, int* /*send_len*/,
                                const SocketInfo* si) {
+    if (is_capture_client(si)) {
+        return 0;
+    }
     Session* session = find_session(si->conn_id);
     if (session == nullptr || len < static_cast<int>(tunnel::kHeaderSize)) {
         return -1;
@@ -139,6 +179,11 @@ int handle_message_from_client(const char* data, int len, char** /*send_data*/, 
 
 int handle_client_close(const SocketInfo* si) {
     char addr[64];
+    if (is_capture_client(si)) {
+        g_live_capture.remove_subscriber(si->conn_id);
+        LOG_INFO("Live capture client %s disconnected", srv_addr_to_string(&si->remote_addr, addr, sizeof(addr)));
+        return 0;
+    }
     LOG_INFO("Tunnel from %s closed%s%s", srv_addr_to_string(&si->remote_addr, addr, sizeof(addr)),
              si->last_error ? ": " : "", si->last_error ? strerror(si->last_error) : "");
     t_worker->sessions.erase(si->conn_id);

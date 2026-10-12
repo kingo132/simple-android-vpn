@@ -36,6 +36,8 @@ struct VpnConfig {
     size_t tcp_flow_buffer = 1024 * 1024;  // vpn_tcp_flow_buffer: pause reading the server above this
     std::string pcap_dir;                  // vpn_pcap_dir: capture every session to a pcap file
     size_t pcap_max_bytes = 100 << 20;     // vpn_pcap_max_mb
+    int capture_port = 0;                  // vpn_capture_port: live pcap stream port (also in the bind file), 0 = off
+    bool capture_allow_remote = false;     // vpn_capture_allow_remote: accept capture clients that are not on loopback
     bool block_private_targets = false;    // vpn_block_private: refuse loopback/private destinations
     bool block_quic = false;               // vpn_block_quic: reject UDP 443 so apps fall back to TCP + TLS
     int stats_interval_s = 60;             // vpn_stats_interval
@@ -168,6 +170,7 @@ private:
     std::string client_name_;
     int64_t created_ms_;
     int64_t last_stats_ms_;
+    int64_t last_flush_ms_ = 0;
     PcapWriter pcap_;
     FragmentReassembler reassembler_;
     uint32_t next_ip_id_ = 1;

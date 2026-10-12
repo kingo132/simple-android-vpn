@@ -5,8 +5,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <cstdio>
+#include <mutex>
 #include <string>
+#include <vector>
+
+#include "server_api.h"
 
 namespace vpn {
 
@@ -30,6 +35,26 @@ private:
     size_t written_ = 0;
     size_t max_bytes_ = 0;
 };
+
+// Live capture: every connected client of the capture port (vpn_capture_port)
+// receives a pcap stream of all packets of all sessions, e.g.
+//   nc 127.0.0.1 9444 | wireshark -k -i -
+// Thread safe: packets are published from every worker thread.
+class LiveCapture {
+public:
+    // A capture client connected: send it the pcap file header
+    void add_subscriber(const SocketInfo& si);
+    void remove_subscriber(uint64_t conn_id);
+    void publish(const uint8_t* packet, size_t len);
+    bool active() const { return count_.load(std::memory_order_relaxed) > 0; }
+
+private:
+    std::mutex mutex_;
+    std::vector<SocketInfo> subscribers_;
+    std::atomic<int> count_{0};
+};
+
+extern LiveCapture g_live_capture;
 
 } // namespace vpn
 
