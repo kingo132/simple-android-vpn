@@ -87,8 +87,9 @@ sed -e "s|^vpn_token = .*|vpn_token = $TOKEN|" \
     -e "s|^log_dir = .*|log_dir = $WORK/server/log|" \
     -e "s|^vpn_pcap_dir = .*|vpn_pcap_dir = $WORK/server/pcap|" \
     -e "s|^#vpn_block_domains = .*|vpn_block_domains = blocked.test|" \
-    -e "s/^#vpn_rewrite_2 = .*/vpn_rewrite_2 = down|Hello SimpleVPN|Hello Rewrite!/" \
+    -e "s/^#vpn_rewrite_2 = .*/vpn_rewrite_2 = down|Hello SimpleVPN|Hello Rewritten/" \
     -e "s|^vpn_rewrite_ports = .*|vpn_rewrite_ports = 8080|" \
+    -e "s|^vpn_block_quic = .*|vpn_block_quic = 1|" \
     "$ROOT/server/conf/server.ini" > "$WORK/server/conf/server.ini"
 (cd "$WORK/server" && exec "$BUILD/server/reactor/mulserver" conf/server.ini "$BUILD/server/libvpnproxy.so" \
     > "$WORK/server/stdout.txt" 2>&1) &
@@ -126,10 +127,10 @@ fi
 
 log "HTTP"
 out=$(in_phone curl --noproxy '*' -s -m 10 http://198.51.100.10:8080/index.html)
-[ "$out" = "Hello Rewrite!" ] && pass "HTTP GET over IPv4 (response rewritten by rule)" || fail "HTTP GET got '$out'"
+[ "$out" = "Hello Rewritten" ] && pass "HTTP GET over IPv4 (response rewritten by rule)" || fail "HTTP GET got '$out'"
 if [ $HAVE_V6 = 1 ]; then
     out=$(in_phone curl --noproxy '*' -s -m 10 "http://[2001:db8:100::10]:8080/index.html")
-    [ "$out" = "Hello Rewrite!" ] && pass "HTTP GET over IPv6" || fail "HTTP GET IPv6 got '$out'"
+    [ "$out" = "Hello Rewritten" ] && pass "HTTP GET over IPv6" || fail "HTTP GET IPv6 got '$out'"
 fi
 
 start=$(date +%s.%N)
@@ -190,7 +191,7 @@ for _ in $(seq 100); do
     sleep 0.1
 done
 out=$(in_phone curl --noproxy '*' -s -m 10 http://198.51.100.10:8080/index.html)
-[ "$out" = "Hello Rewrite!" ] && pass "traffic flows again after reconnect" || fail "after reconnect got '$out'"
+[ "$out" = "Hello Rewritten" ] && pass "traffic flows again after reconnect" || fail "after reconnect got '$out'"
 
 log "Wrong token is rejected"
 in_phone ip tuntap add dev tun9 mode tun

@@ -37,6 +37,7 @@ struct VpnConfig {
     std::string pcap_dir;                  // vpn_pcap_dir: capture every session to a pcap file
     size_t pcap_max_bytes = 100 << 20;     // vpn_pcap_max_mb
     bool block_private_targets = false;    // vpn_block_private: refuse loopback/private destinations
+    bool block_quic = false;               // vpn_block_quic: reject UDP 443 so apps fall back to TCP + TLS
     int stats_interval_s = 60;             // vpn_stats_interval
     size_t session_inflight = 4 << 20;     // vpn_session_inflight: unacknowledged bytes per tunnel
 };

@@ -31,7 +31,7 @@ wait $JAVA_PID
 cat "$WORK/java.log"
 
 RC=0
-[ "$out" = "Hello Rewrite!" ] && echo "PASS HTTP through the JNI tunnel" || { echo "FAIL HTTP got '$out'"; RC=1; }
+[ "$out" = "Hello Rewritten" ] && echo "PASS HTTP through the JNI tunnel" || { echo "FAIL HTTP got '$out'"; RC=1; }
 [ "$sha" = "$(sha256sum "$WORK/e2e/www/big.bin" | cut -d' ' -f1)" ] && echo "PASS 50 MB download through the JNI tunnel" || { echo "FAIL download"; RC=1; }
 grep -q "JNI OK" "$WORK/java.log" && echo "PASS JNI callbacks (protect, state) and stats" || RC=1
 

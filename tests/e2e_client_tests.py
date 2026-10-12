@@ -73,6 +73,23 @@ def banner(host):
     return first.startswith(b"220") and second == b"250 HELO phone\r\n" and third.startswith(b"221")
 
 
+def quic_rejected(host):
+    """vpn_block_quic answers UDP 443 with ICMP port unreachable -> ECONNREFUSED"""
+    s = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(3)
+    s.connect((host, 443))
+    s.send(b"\xc0" + os.urandom(1199))
+    try:
+        s.recv(100)
+        return False
+    except ConnectionRefusedError:
+        return True
+    except socket.timeout:
+        return False
+    finally:
+        s.close()
+
+
 def main():
     hosts = (TARGET4, TARGET6) if os.environ.get("HAVE_V6") == "1" else (TARGET4,)
     for host in hosts:
@@ -82,6 +99,8 @@ def main():
         check("udp echo %s" % host, udp_echo(host, 50, 1200) >= 48)
         check("udp echo large datagram %s" % host, udp_echo(host, 5, 8000) >= 4)
         check("server speaks first %s" % host, banner(host))
+
+    check("QUIC (UDP 443) rejected with ICMP unreachable", quic_rejected(TARGET4))
 
     # many parallel connections
     results = []

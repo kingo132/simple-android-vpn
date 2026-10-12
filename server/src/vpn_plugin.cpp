@@ -64,6 +64,7 @@ void load_config() {
     c.pcap_dir = srv_conf_string("vpn_pcap_dir", "");
     c.pcap_max_bytes = static_cast<size_t>(srv_conf_int("vpn_pcap_max_mb", 100)) << 20;
     c.block_private_targets = srv_conf_int("vpn_block_private", 0) != 0;
+    c.block_quic = srv_conf_int("vpn_block_quic", 0) != 0;
     c.stats_interval_s = srv_conf_int("vpn_stats_interval", c.stats_interval_s);
     int inflight = srv_conf_int("vpn_session_inflight", static_cast<int>(c.session_inflight));
     c.session_inflight = static_cast<size_t>(inflight < 65536 ? 65536 : inflight);

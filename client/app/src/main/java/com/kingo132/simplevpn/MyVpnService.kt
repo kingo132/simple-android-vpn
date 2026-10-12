@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.net.InetAddress
 import java.util.concurrent.Executors
@@ -76,6 +77,29 @@ class MyVpnService : VpnService() {
             return
         }
 
+        val tun = try {
+            createInterface(settings)
+        } catch (e: Exception) {
+            // e.g. an invalid DNS server address or MTU
+            updateState(STATE_FAILED, "cannot create the VPN interface: ${e.message}")
+            return
+        }
+        if (tun == null) {
+            updateState(STATE_FAILED, "VPN permission was revoked, start again from the app")
+            return
+        }
+
+        // The native client owns the fd from now on and closes it when stopped
+        val fd = tun.detachFd()
+        val v6 = if (settings.ipv6) TUN_IPV6 else ""
+        nativeHandle = nativeStart(fd, serverIp, settings.port, settings.token, settings.mtu, TUN_IPV4, v6)
+        if (nativeHandle == 0L) {
+            updateState(STATE_FAILED, "native tunnel failed to start")
+        }
+        Log.i(TAG, "VPN interface up, tunnel to $serverIp:${settings.port}")
+    }
+
+    private fun createInterface(settings: VpnSettings): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession("SimpleVPN ${settings.server}")
             .setMtu(settings.mtu)
@@ -96,43 +120,20 @@ class MyVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
-        try {
-            val allowed = settings.allowedPackages()
-            if (allowed.isEmpty()) {
-                // Everything except ourselves: our tunnel connection must not loop into the VPN
-                builder.addDisallowedApplication(packageName)
-            } else {
-                for (pkg in allowed) {
-                    try {
-                        builder.addAllowedApplication(pkg)
-                    } catch (e: PackageManager.NameNotFoundException) {
-                        Log.w(TAG, "allowed app $pkg is not installed")
-                    }
+        val allowed = settings.allowedPackages()
+        if (allowed.isEmpty()) {
+            // Everything except ourselves: our tunnel connection must not loop into the VPN
+            builder.addDisallowedApplication(packageName)
+        } else {
+            for (pkg in allowed) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (e: PackageManager.NameNotFoundException) {
+                    Log.w(TAG, "allowed app $pkg is not installed")
                 }
             }
-        } catch (e: PackageManager.NameNotFoundException) {
-            Log.w(TAG, "cannot exclude own package", e)
         }
-
-        val tun = try {
-            builder.establish()
-        } catch (e: Exception) {
-            updateState(STATE_FAILED, "cannot create the VPN interface: ${e.message}")
-            return
-        }
-        if (tun == null) {
-            updateState(STATE_FAILED, "VPN permission was revoked, start again from the app")
-            return
-        }
-
-        // The native client owns the fd from now on and closes it when stopped
-        val fd = tun.detachFd()
-        val v6 = if (settings.ipv6) TUN_IPV6 else ""
-        nativeHandle = nativeStart(fd, serverIp, settings.port, settings.token, settings.mtu, TUN_IPV4, v6)
-        if (nativeHandle == 0L) {
-            updateState(STATE_FAILED, "native tunnel failed to start")
-        }
-        Log.i(TAG, "VPN interface up, tunnel to $serverIp:${settings.port}")
+        return builder.establish()
     }
 
     private fun disconnect() {

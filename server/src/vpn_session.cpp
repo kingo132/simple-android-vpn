@@ -410,6 +410,16 @@ void Session::handle_udp(const ParsedPacket& p) {
         LOG_NOTICE("%s refuse UDP to private address %s", tag_.c_str(), p.dst.to_string().c_str());
         return;
     }
+    if (g_vpn_config.block_quic && p.dst_port == 443) {
+        // Answer like a firewall would; browsers then retry over TCP + TLS
+        ++dropped_;
+        LOG_DEBUG("%s QUIC to %s rejected (vpn_block_quic)", tag_.c_str(), p.dst.to_string().c_str());
+        std::string icmp;
+        bool v6 = p.ip_version == 6;
+        build_icmp_packet(icmp, p.dst, p.src, v6 ? 1 : 3, v6 ? 4 : 3, 0, p.ip_header, p.ip_header_len + 8);
+        send_packet(icmp);
+        return;
+    }
     if (flows_.size() >= static_cast<size_t>(g_vpn_config.max_flows_per_session)) {
         ++dropped_;
         LOG_WARN("%s too many flows (%zu), drop UDP packet", tag_.c_str(), flows_.size());

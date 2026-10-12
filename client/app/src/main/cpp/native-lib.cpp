@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unistd.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -91,6 +92,7 @@ Java_com_kingo132_simplevpn_MyVpnService_nativeStart(JNIEnv* env, jobject thiz, 
         clear_exception(env);
         env->DeleteGlobalRef(tunnel->service);
         delete tunnel;
+        close(tun_fd); // we own the detached fd
         return 0;
     }
 
